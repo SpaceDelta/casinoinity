@@ -22,7 +22,7 @@ index 848eb25ed0640db61a0f28bc26ddabd0444e9ed4..ec2b9995f1bf0f6cf029df7bfac526c2
                      continue;
                  }
 diff --git a/src/main/java/net/minecraft/server/level/PlayerChunkMap.java b/src/main/java/net/minecraft/server/level/PlayerChunkMap.java
-index d7eede51f1c4ebbe8e00b16efd6331c87db53bb4..fd707891028f5a35ac1b092ab711ee30f134c085 100644
+index d7eede51f1c4ebbe8e00b16efd6331c87db53bb4..b28995ecfd7f45e6b6197be96c418aa0d05d3383 100644
 --- a/src/main/java/net/minecraft/server/level/PlayerChunkMap.java
 +++ b/src/main/java/net/minecraft/server/level/PlayerChunkMap.java
 @@ -116,8 +116,9 @@ public class PlayerChunkMap extends IChunkLoader implements PlayerChunk.d {
@@ -56,7 +56,7 @@ index d7eede51f1c4ebbe8e00b16efd6331c87db53bb4..fd707891028f5a35ac1b092ab711ee30
      }
  
      // Paper start - remove cloning of visible chunks unless accessed as a collection async
-@@ -743,47 +743,22 @@ public class PlayerChunkMap extends IChunkLoader implements PlayerChunk.d {
+@@ -743,47 +743,25 @@ public class PlayerChunkMap extends IChunkLoader implements PlayerChunk.d {
      private boolean isIterating = false;
      private boolean hasPendingVisibleUpdate = false;
      public void forEachVisibleChunk(java.util.function.Consumer<PlayerChunk> consumer) {
@@ -103,16 +103,18 @@ index d7eede51f1c4ebbe8e00b16efd6331c87db53bb4..fd707891028f5a35ac1b092ab711ee30
 -            synchronized (this.visibleChunks) {
 -                return (PlayerChunk) (this.hasPendingVisibleUpdate ? this.pendingVisibleChunks.get(i) : ((ProtectedVisibleChunksMap)this.visibleChunks).safeGet(i));
 -            }
--        }
++        // Tuinity start - Don't copy
++        if (Thread.currentThread() == this.world.serverThread) {
++            return this.updatingChunks.getVisible(i);
+         }
 -        return (PlayerChunk) (this.hasPendingVisibleUpdate ? this.pendingVisibleChunks.get(i) : ((ProtectedVisibleChunksMap)this.visibleChunks).safeGet(i));
 -        // Paper end
-+        // Tuinity start - Don't copy
-+        return this.updatingChunks.getVisible(i);
++        return this.updatingChunks.getVisibleAsync(i);
 +        // Tuinity end - Don't copy
      }
  
      protected final IntSupplier getPrioritySupplier(long i) { return c(i); } // Paper - OBFHELPER
-@@ -911,7 +886,7 @@ public class PlayerChunkMap extends IChunkLoader implements PlayerChunk.d {
+@@ -911,7 +889,7 @@ public class PlayerChunkMap extends IChunkLoader implements PlayerChunk.d {
                  }
                  this.getVillagePlace().dequeueUnload(playerchunk.location.pair()); // Tuinity - unload POI data
  
@@ -121,7 +123,7 @@ index d7eede51f1c4ebbe8e00b16efd6331c87db53bb4..fd707891028f5a35ac1b092ab711ee30
                  this.updatingChunksModified = true;
              }
  
-@@ -1064,7 +1039,7 @@ public class PlayerChunkMap extends IChunkLoader implements PlayerChunk.d {
+@@ -1064,7 +1042,7 @@ public class PlayerChunkMap extends IChunkLoader implements PlayerChunk.d {
          while (longiterator.hasNext()) { // Spigot
              long j = longiterator.nextLong();
              longiterator.remove(); // Spigot
@@ -130,7 +132,7 @@ index d7eede51f1c4ebbe8e00b16efd6331c87db53bb4..fd707891028f5a35ac1b092ab711ee30
  
              if (playerchunk != null) {
                  this.pendingUnload.put(j, playerchunk);
-@@ -1218,19 +1193,11 @@ public class PlayerChunkMap extends IChunkLoader implements PlayerChunk.d {
+@@ -1218,19 +1196,11 @@ public class PlayerChunkMap extends IChunkLoader implements PlayerChunk.d {
          if (!this.updatingChunksModified) {
              return false;
          } else {
@@ -154,7 +156,7 @@ index d7eede51f1c4ebbe8e00b16efd6331c87db53bb4..fd707891028f5a35ac1b092ab711ee30
  
              this.updatingChunksModified = false;
              return true;
-@@ -1701,7 +1668,7 @@ public class PlayerChunkMap extends IChunkLoader implements PlayerChunk.d {
+@@ -1701,7 +1671,7 @@ public class PlayerChunkMap extends IChunkLoader implements PlayerChunk.d {
      }
  
      public int d() {
