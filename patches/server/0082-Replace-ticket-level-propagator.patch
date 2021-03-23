@@ -15,7 +15,7 @@ will be more effective, since more time will be allocated
 to actually processing chunk tasks vs the ticket level updates.
 
 diff --git a/src/main/java/net/minecraft/server/level/ChunkMapDistance.java b/src/main/java/net/minecraft/server/level/ChunkMapDistance.java
-index db8532c42fcb2e96f4b3491352d1b9a25a8efe49..a88a403de14ef14685918e05d8b0747eb6116371 100644
+index db8532c42fcb2e96f4b3491352d1b9a25a8efe49..b713ff9cae31e075c9df39de52ce4515cb1e8622 100644
 --- a/src/main/java/net/minecraft/server/level/ChunkMapDistance.java
 +++ b/src/main/java/net/minecraft/server/level/ChunkMapDistance.java
 @@ -8,6 +8,7 @@ import it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap;
@@ -99,7 +99,7 @@ index db8532c42fcb2e96f4b3491352d1b9a25a8efe49..a88a403de14ef14685918e05d8b0747e
              }
  
              if (((ArraySetSorted) entry.getValue()).isEmpty()) {
-@@ -166,66 +206,81 @@ public abstract class ChunkMapDistance {
+@@ -166,66 +206,99 @@ public abstract class ChunkMapDistance {
      protected abstract boolean a(long i);
  
      @Nullable
@@ -140,36 +140,54 @@ index db8532c42fcb2e96f4b3491352d1b9a25a8efe49..a88a403de14ef14685918e05d8b0747e
 -                LongIterator longiterator = this.l.iterator();
 +        // Tuinity start - replace level propagator
 +        if (!this.ticketLevelUpdates.isEmpty()) {
-+            for (java.util.Iterator<Long2IntMap.Entry> iterator = this.ticketLevelUpdates.long2IntEntrySet().fastIterator(); iterator.hasNext();) {
-+                Long2IntMap.Entry entry = iterator.next();
-+                long key = entry.getLongKey();
-+                int newLevel = entry.getIntValue();
-+                PlayerChunk chunk = this.getUpdatingChunk(key);
++            boolean oldPolling = this.pollingPendingChunkUpdates;
++            this.pollingPendingChunkUpdates = true;
++            try {
++                for (java.util.Iterator<Long2IntMap.Entry> iterator = this.ticketLevelUpdates.long2IntEntrySet().fastIterator(); iterator.hasNext(); ) {
++                    Long2IntMap.Entry entry = iterator.next();
++                    long key = entry.getLongKey();
++                    int newLevel = entry.getIntValue();
++                    PlayerChunk chunk = this.getUpdatingChunk(key);
  
 -                while (longiterator.hasNext()) {
 -                    long j = longiterator.nextLong();
-+                if (chunk == null && newLevel > PlayerChunkMap.GOLDEN_TICKET) {
-+                    // not loaded and it shouldn't be loaded!
-+                    continue;
-+                }
++                    if (chunk == null && newLevel > PlayerChunkMap.GOLDEN_TICKET) {
++                        // not loaded and it shouldn't be loaded!
++                        continue;
++                    }
  
 -                    if (this.e(j).stream().anyMatch((ticket) -> {
 -                        return ticket.getTicketType() == TicketType.PLAYER;
 -                    })) {
 -                        PlayerChunk playerchunk = playerchunkmap.getUpdatingChunk(j);
-+                int currentLevel = chunk == null ? PlayerChunkMap.GOLDEN_TICKET + 1 : chunk.getTicketLevel();
++                    int currentLevel = chunk == null ? PlayerChunkMap.GOLDEN_TICKET + 1 : chunk.getTicketLevel();
  
 -                        if (playerchunk == null) {
 -                            throw new IllegalStateException();
--                        }
-+                if (currentLevel == newLevel) {
-+                    // nothing to do
-+                    continue;
++                    if (currentLevel == newLevel) {
++                        // nothing to do
++                        continue;
++                    }
++
++                    this.updateTicketLevel(key, newLevel, chunk, currentLevel);
 +                }
++
++                long recursiveCheck = ++this.ticketLevelUpdateCount;
++                while (!this.ticketLevelUpdates.isEmpty()) {
++                    long key = this.ticketLevelUpdates.firstLongKey();
++                    int newLevel = this.ticketLevelUpdates.removeFirstInt();
++                    PlayerChunk chunk = this.getUpdatingChunk(key);
++
++                    if (chunk == null) {
++                        if (newLevel <= PlayerChunkMap.GOLDEN_TICKET) {
++                            throw new IllegalStateException("Expected chunk holder to be created");
+                         }
++                        // not loaded and it shouldn't be loaded!
++                        continue;
++                    }
  
 -                        CompletableFuture<Either<Chunk, PlayerChunk.Failure>> completablefuture = playerchunk.b();
-+                this.updateTicketLevel(key, newLevel, chunk, currentLevel);
-+            }
++                    int currentLevel = chunk.oldTicketLevel;
  
 -                        completablefuture.thenAccept((either) -> {
 -                            this.m.execute(() -> {
@@ -177,35 +195,34 @@ index db8532c42fcb2e96f4b3491352d1b9a25a8efe49..a88a403de14ef14685918e05d8b0747e
 -                                }, j, false));
 -                            });
 -                        });
-+            long recursiveCheck = ++this.ticketLevelUpdateCount;
-+            while (!this.ticketLevelUpdates.isEmpty()) {
-+                long key = this.ticketLevelUpdates.firstLongKey();
-+                int newLevel = this.ticketLevelUpdates.removeFirstInt();
-+                PlayerChunk chunk = this.getUpdatingChunk(key);
++                    if (currentLevel == newLevel) {
++                        // nothing to do
++                        continue;
++                    }
 +
-+                if (chunk == null) {
-+                    if (newLevel <= PlayerChunkMap.GOLDEN_TICKET) {
-+                        throw new IllegalStateException("Expected chunk holder to be created");
++                    chunk.handleLevelUpdate(playerchunkmap);
++                    if (recursiveCheck != this.ticketLevelUpdateCount) {
++                        if (!this.ticketLevelUpdates.isEmpty()) {
++                            throw new IllegalStateException("Recursive call should have processed updates");
++                        }
++                        break;
                      }
-+                    // not loaded and it shouldn't be loaded!
-+                    continue;
-+                }
-+
-+                int currentLevel = chunk.oldTicketLevel;
-+
-+                if (currentLevel == newLevel) {
-+                    // nothing to do
-+                    continue;
                  }
  
 -                this.l.clear();
-+                chunk.handleLevelUpdate(this.chunkMap);
-+                if (recursiveCheck != this.ticketLevelUpdateCount) {
-+                    if (!this.ticketLevelUpdates.isEmpty()) {
-+                        throw new IllegalStateException("Recursive call should have processed updates");
++                for (;;) {
++                    if (recursiveCheck != this.ticketLevelUpdateCount) {
++                        break;
 +                    }
-+                    break;
++                    PlayerChunk pendingUpdate = this.pendingChunkUpdates.poll();
++                    if (pendingUpdate == null) {
++                        break;
++                    }
++
++                    pendingUpdate.handleLevelUpdate(playerchunkmap);
 +                }
++            } finally {
++                this.pollingPendingChunkUpdates = oldPolling;
              }
  
 -            return flag;
@@ -217,7 +234,7 @@ index db8532c42fcb2e96f4b3491352d1b9a25a8efe49..a88a403de14ef14685918e05d8b0747e
      }
      boolean pollingPendingChunkUpdates = false; // Paper
  
-@@ -237,7 +292,7 @@ public abstract class ChunkMapDistance {
+@@ -237,7 +310,7 @@ public abstract class ChunkMapDistance {
  
          ticket1.a(this.currentTick);
          if (ticket.b() < j) {
@@ -226,7 +243,7 @@ index db8532c42fcb2e96f4b3491352d1b9a25a8efe49..a88a403de14ef14685918e05d8b0747e
          }
  
          return ticket == ticket1; // CraftBukkit
-@@ -263,7 +318,7 @@ public abstract class ChunkMapDistance {
+@@ -263,7 +336,7 @@ public abstract class ChunkMapDistance {
          }
  
          int newLevel = getLowestTicketLevel(arraysetsorted); // Paper
@@ -235,7 +252,7 @@ index db8532c42fcb2e96f4b3491352d1b9a25a8efe49..a88a403de14ef14685918e05d8b0747e
          return removed; // CraftBukkit
      }
  
-@@ -517,7 +572,7 @@ public abstract class ChunkMapDistance {
+@@ -517,7 +590,7 @@ public abstract class ChunkMapDistance {
              ArraySetSorted<Ticket<?>> tickets = entry.getValue();
              if (tickets.remove(target)) {
                  // copied from removeTicket
