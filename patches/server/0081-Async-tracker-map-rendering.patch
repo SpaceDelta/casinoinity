@@ -5,24 +5,15 @@ Subject: [PATCH] Async tracker map rendering
 
 
 diff --git a/src/main/java/net/minecraft/server/level/EntityTrackerEntry.java b/src/main/java/net/minecraft/server/level/EntityTrackerEntry.java
-index a1512ee8422fa39a95e4f19c86fe71b77af54ca0..228e8f7b0abda03f4f53f6b1924325be3abdbcab 100644
+index a1512ee8422fa39a95e4f19c86fe71b77af54ca0..740c5fbd69c876d1e0da5589580600e2820bb307 100644
 --- a/src/main/java/net/minecraft/server/level/EntityTrackerEntry.java
 +++ b/src/main/java/net/minecraft/server/level/EntityTrackerEntry.java
-@@ -117,6 +117,8 @@ public class EntityTrackerEntry {
+@@ -116,7 +116,7 @@ public class EntityTrackerEntry {
+             EntityItemFrame entityitemframe = (EntityItemFrame) this.tracker;
              ItemStack itemstack = entityitemframe.getItem();
  
-             if (this.tickCounter % 10 == 0 && itemstack.getItem() instanceof ItemWorldMap) { // CraftBukkit - Moved this.tickCounter % 10 logic here so item frames do not enter the other blocks
-+                // SpaceDelta start - async this bitch
-+                java.util.concurrent.ForkJoinPool.commonPool().submit(() -> {
+-            if (this.tickCounter % 10 == 0 && itemstack.getItem() instanceof ItemWorldMap) { // CraftBukkit - Moved this.tickCounter % 10 logic here so item frames do not enter the other blocks
++            if (false && this.tickCounter % 10 == 0 && itemstack.getItem() instanceof ItemWorldMap) { // CraftBukkit - Moved this.tickCounter % 10 logic here so item frames do not enter the other blocks // SpaceDelta
                  WorldMap worldmap = ItemWorldMap.getSavedMap(itemstack, this.b);
                  Iterator iterator = this.trackedPlayers.iterator(); // CraftBukkit
  
-@@ -130,6 +132,8 @@ public class EntityTrackerEntry {
-                         entityplayer.playerConnection.sendPacket(packet);
-                     }
-                 }
-+                });
-+                // SpaceDelta end
-             }
- 
-             this.c();
